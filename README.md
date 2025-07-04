@@ -19,22 +19,6 @@ SQLite3 (sqlite3)
 Logging (logging)
 CSV file handling (csv)
 
-🚀 How to Run
-Clone the Repository
-
-bash
-Copy
-Edit
-git clone https://github.com/yourusername/restaurant-cli-system.git
-cd restaurant-cli-system
-Run the Script
-
-bash
-Copy
-Edit
-python restaurant.py
-Make sure restaurant.db, restaurant.log, and receipts.csv will be created in the same directory when the script runs.
-
 🔐 Admin Login
 To access worker management functions:
 Username: none required
