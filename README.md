@@ -13,3 +13,9 @@ A simple Python-based Command-Line Restaurant Management System, implementing Ob
 ✅ CSV Receipt Logs
 ✅ Activity Logging using Python's logging module
 
+🔧 Technologies Used
+Python 
+SQLite3 (sqlite3)
+Logging (logging)
+CSV file handling (csv)
+
