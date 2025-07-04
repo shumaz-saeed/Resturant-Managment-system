@@ -1,0 +1,250 @@
+import sqlite3
+import logging
+from datetime import datetime
+import csv
+
+logging.basicConfig(filename='restaurant.log', level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(message)s')
+
+db = sqlite3.connect('restaurant.db')
+cursor = db.cursor()
+
+def setup_database():
+    cursor.execute('''CREATE TABLE IF NOT EXISTS workers (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT NOT NULL,
+                        role TEXT NOT NULL
+                    )''')
+
+    cursor.execute('''CREATE TABLE IF NOT EXISTS orders (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        table_number INTEGER,
+                        items TEXT,
+                        total_price REAL,
+                        timestamp TEXT
+                    )''')
+
+    cursor.execute('''CREATE TABLE IF NOT EXISTS tables (
+                        number INTEGER PRIMARY KEY,
+                        is_reserved INTEGER DEFAULT 0
+                    )''')
+
+    db.commit()
+
+class MenuItem:
+    def __init__(self, name, price, category, description):
+        self.name = name
+        self.price = price
+        self.category = category
+        self.description = description
+
+class Menu:
+    def __init__(self):
+        self.items = []
+
+    def add_item(self, item):
+        self.items.append(item)
+        logging.info(f"Added Menu Item: {item.name} - {item.price}")
+
+    def remove_item(self, item_name):
+        self.items = [item for item in self.items if item.name != item_name]
+        logging.info(f"Removed Menu Item: {item_name}")
+
+    def view_menu(self):
+        print("\n--- Menu ---")
+        for item in self.items:
+            print(f"{item.name}: {item.price}")
+
+class Restaurant:
+    def __init__(self, menu):
+        self.menu = menu
+
+    def place_order(self, table_number, item_names):
+        total = 0
+        order_items = []
+
+        for name in item_names:
+            item = next((i for i in self.menu.items if i.name.lower() == name.lower()), None)
+            if item:
+                order_items.append(item.name)
+                total += item.price
+            else:
+                print(f"Item '{name}' not found in menu.")
+
+        items_str = ', '.join(order_items)
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+        cursor.execute('INSERT INTO orders (table_number, items, total_price, timestamp) VALUES (?, ?, ?, ?)',
+                       (table_number, items_str, total, timestamp))
+        db.commit()
+
+        receipt = f"--- Receipt ---\nTable: {table_number}\nItems: {items_str}\nTotal: {total}\nTime: {timestamp}"
+        print(receipt)
+
+        with open(f"receipt_table_{table_number}.txt", 'w') as f:
+            f.write(receipt)
+
+        with open('receipts.csv', 'a', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow([table_number, items_str, total, timestamp])
+
+        logging.info(f"Order Placed - Table {table_number}: {items_str} - Total: {total}")
+
+def admin_login():
+    return input("Enter admin password: ") == "admin123"
+
+def add_worker():
+    if not admin_login():
+        print("Unauthorized Access!")
+        return
+    else:
+        name = input("Enter worker name: ")
+        role = input("Enter worker role: ")
+        cursor.execute('INSERT INTO workers (name, role) VALUES (?, ?)', (name, role))
+        db.commit()
+        logging.info(f"Worker Added - {name}, Role: {role}")
+
+def view_workers():
+    if not admin_login():
+        print("Unauthorized Access!")
+        return
+    else:
+        cursor.execute('SELECT * FROM workers')
+        for worker in cursor.fetchall():
+            print(f"ID: {worker[0]}, Name: {worker[1]}, Role: {worker[2]}")
+
+def update_worker():
+    if not admin_login():
+        print("Unauthorized Access!")
+        return
+    else:
+        wid = input("Enter worker ID to update: ")
+        new_role = input("Enter new role: ")
+        cursor.execute('UPDATE workers SET role=? WHERE id=?', (new_role, wid))
+        db.commit()
+        logging.info(f"Worker Updated - ID: {wid}, New Role: {new_role}")
+
+def remove_worker():
+    if not admin_login():
+        print("Unauthorized Access!")
+        return
+    else:
+        wid = input("Enter worker ID to remove: ")
+        cursor.execute('DELETE FROM workers WHERE id=?', (wid,))
+        db.commit()
+        logging.info(f"Worker Removed - ID: {wid}")
+
+def reserve_table():
+    num = int(input("Enter table number to reserve: "))
+    cursor.execute('INSERT OR REPLACE INTO tables (number, is_reserved) VALUES (?, 1)', (num,))
+    db.commit()
+    logging.info(f"Table {num} reserved")
+
+def view_tables():
+    cursor.execute('SELECT * FROM tables')
+    for table in cursor.fetchall():
+        status = "Reserved" if table[1] else "Free"
+        print(f"Table {table[0]}: {status}")
+
+def main():
+    setup_database()
+
+    menu = Menu()
+    menu.add_item(MenuItem("Burger", 599, "Fast Food", "Crispy fried thigh, crispy lettuce, spicy dynamite sauce, served in a sesame seed bun."))
+    menu.add_item(MenuItem("Pizza", 899, "Fast Food", "Spicy chicken, creamy homemade sauce, green peppers, onion mushrooms, chicken sausages, black olives and lots of cheese."))
+    menu.add_item(MenuItem("Pasta", 750, "Fast Food", "Fried chicken, mushrooms, and penne pasta baked in a blend of farmhouse, garnished with black olives and mozzarella cheese."))
+
+    restaurant = Restaurant(menu)
+
+    while True:
+        print("--- Welcome to the Restaurant ---")
+        customer_name = input("Please enter your name: ")
+        print(f"Welcome {customer_name}!")
+
+        opt = input("1. Dine in  \n2. Takeaway    \n3. Exit \n")
+
+        if opt == '1':
+            while True:
+                print("1. View tables  \n2. Reserve table \n3. Proceed to Menu")
+                op1 = input("Select an option: ")
+
+                if op1 == '1':
+                    view_tables()
+                elif op1 == '2':
+                    reserve_table()
+                elif op1 == '3':
+                    break
+                else:
+                    print("Invalid option. Please try again.")
+
+            while True:
+                print("\n--- Dine-In Menu ---")
+                print("1. View Menu\n2. Place Order\n3. Admin Panel\n4. Exit to Main Menu")
+                choice = input("Select an option: ")
+
+                if choice == '1':
+                    menu.view_menu()
+                elif choice == '2':
+                    table_number = int(input("Enter your Table Number: "))
+                    menu.view_menu()
+                    items = input("Enter items to order (comma separated): ").split(',')
+                    restaurant.place_order(table_number, [i.strip() for i in items])
+                elif choice == '3':
+                    print("1. Add Worker\n2. View Workers\n3. Update Worker\n4. Remove Worker")
+                    admin_opt = input("Select: ")
+                    if admin_opt == '1':
+                        add_worker()
+                    elif admin_opt == '2':
+                        view_workers()
+                    elif admin_opt == '3':
+                        update_worker()
+                    elif admin_opt == '4':
+                        remove_worker()
+                elif choice == '4':
+                    print("Returning to Main Menu.")
+                    break
+                else:
+                    print("Invalid option.")
+
+        elif opt == '2':
+            print("Notice: your takeaway order will take 30 min to get prepared.")
+
+            while True:
+                print("\n--- Takeaway Menu ---")
+                print("1. View Menu\n2. Place Order\n3. Admin Panel\n4. Exit to Main Menu")
+                choice = input("Select an option: ")
+
+                if choice == '1':
+                    menu.view_menu()
+                elif choice == '2':
+                    table_number = int(input("Enter your Table Number: "))
+                    menu.view_menu()
+                    items = input("Enter items to order (comma separated): ").split(',')
+                    restaurant.place_order(table_number, [i.strip() for i in items])
+                elif choice == '3':
+                    print("1. Add Worker\n2. View Workers\n3. Update Worker\n4. Remove Worker")
+                    admin_opt = input("Select: ")
+                    if admin_opt == '1':
+                        add_worker()
+                    elif admin_opt == '2':
+                        view_workers()
+                    elif admin_opt == '3':
+                        update_worker()
+                    elif admin_opt == '4':
+                        remove_worker()
+                elif choice == '4':
+                    print("Returning to Main Menu.")
+                    break
+                else:
+                    print("Invalid option.")
+
+        elif opt == '3':
+            print("Thank you for visiting us!")
+            break
+
+        else:
+            print("Invalid option.")
+
+if __name__ == "__main__":
+    main()
+    db.close()
