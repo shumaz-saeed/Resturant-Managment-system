@@ -3,9 +3,11 @@ import logging
 from datetime import datetime
 import csv
 
+# ---------- Logging Setup ----------
 logging.basicConfig(filename='restaurant.log', level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
+# ---------- Database Setup ----------
 db = sqlite3.connect('restaurant.db')
 cursor = db.cursor()
 
@@ -26,14 +28,24 @@ def setup_database():
 
     cursor.execute('''CREATE TABLE IF NOT EXISTS tables (
                         number INTEGER PRIMARY KEY,
+                        seats INTEGER,
                         is_reserved INTEGER DEFAULT 0
                     )''')
 
-    for table_number in range(1, 13):
-        cursor.execute('INSERT OR IGNORE INTO tables (number, is_reserved) VALUES (?, 0)', (table_number,))
+    # Inserting tables with seat info and reservation status
+    for table_number in range(1, 5):
+        cursor.execute('INSERT OR IGNORE INTO tables (number, seats, is_reserved) VALUES (?, ?, ?)',
+                       (table_number, 3, 0))
+    for table_number in range(5, 9):
+        cursor.execute('INSERT OR IGNORE INTO tables (number, seats, is_reserved) VALUES (?, ?, ?)',
+                       (table_number, 2, 0))
+    for table_number in range(9, 13):
+        cursor.execute('INSERT OR IGNORE INTO tables (number, seats, is_reserved) VALUES (?, ?, ?)',
+                       (table_number, 4, 0))
 
     db.commit()
 
+# ---------- Menu Classes ----------
 class MenuItem:
     def __init__(self, id, name, price, category, description):
         self.id = id
@@ -59,6 +71,7 @@ class Menu:
         for item in self.items:
             print(f"{item.id}. {item.name} - {item.price}")
 
+# ---------- Restaurant Order Processing ----------
 class Restaurant:
     def __init__(self, menu):
         self.menu = menu
@@ -94,6 +107,34 @@ class Restaurant:
 
         logging.info(f"Order Placed - Table {table_number}: {items_str} - Total: {total}")
 
+        # Payment Method
+        while True:
+            payment_mode = input("Select Payment Method (Cash/Card): ").strip().lower()
+            if payment_mode == 'cash':
+                print("Payment received in cash. Thank you!")
+                logging.info(f"Payment Method: Cash")
+                break
+            elif payment_mode == 'card':
+                while True:
+                    account_number = input("Enter your 11-digit account number: ")
+                    if len(account_number) == 11 and account_number.isdigit():
+                        print("Payment processed through card. Thank you!")
+                        logging.info(f"Payment Method: Card")
+                        break
+                    else:
+                        print("Invalid account number. Please enter exactly 11 digits.")
+                break
+            else:
+                print("Invalid option. Please choose 'Cash' or 'Card'.")
+
+        # Unreserve table for dine-in orders
+        if table_number != 0:
+            cursor.execute('UPDATE tables SET is_reserved = 0 WHERE number = ?', (table_number,))
+            db.commit()
+            logging.info(f"Table {table_number} unreserved after order completion.")
+            print(f"Table {table_number} is now available for others.")
+
+# ---------- Admin Functions ----------
 def admin_login():
     return input("Enter admin password: ") == "admin123"
 
@@ -134,12 +175,21 @@ def remove_worker():
     db.commit()
     logging.info(f"Worker Removed - ID: {wid}")
 
+def unreserve_all_tables():
+    if not admin_login():
+        print("Unauthorized Access!")
+        return
+    cursor.execute('UPDATE tables SET is_reserved = 0')
+    db.commit()
+    print("All tables have been unreserved.")
+    logging.info("All tables unreserved.")
+
+# ---------- Table Reservation ----------
 def view_tables(only_available=False):
     if only_available:
         cursor.execute('SELECT * FROM tables WHERE is_reserved = 0')
     else:
         cursor.execute('SELECT * FROM tables')
-
     tables = cursor.fetchall()
 
     if not tables:
@@ -147,8 +197,8 @@ def view_tables(only_available=False):
         return
 
     for table in tables:
-        status = "Reserved" if table[1] else "Free"
-        print(f"Table {table[0]}: {status}")
+        status = "Reserved" if table[2] else "Free"
+        print(f"Table {table[0]} ({table[1]} seats): {status}")
 
 def reserve_table():
     while True:
@@ -167,7 +217,6 @@ def reserve_table():
         if result is None:
             print(f"Table {num} does not exist. Please try again.")
             continue
-
         if result[0] == 1:
             print(f"Table {num} is already reserved. Please choose another table.")
             continue
@@ -178,18 +227,11 @@ def reserve_table():
         logging.info(f"Table {num} reserved")
         break
 
-def unreserve_all_tables():
-    if not admin_login():
-        print("Unauthorized Access!")
-        return
-    cursor.execute('UPDATE tables SET is_reserved = 0')
-    db.commit()
-    print("All tables have been unreserved.")
-    logging.info("All tables unreserved.")
-
+# ---------- Main Program ----------
 def main():
     setup_database()
 
+    # Menu setup
     menu = Menu()
     menu.add_item(MenuItem(1, "Burger", 599, "Fast Food", "Crispy fried thigh, crispy lettuce, spicy dynamite sauce, served in a sesame seed bun."))
     menu.add_item(MenuItem(2, "Pizza", 899, "Fast Food", "Spicy chicken, creamy homemade sauce, green peppers, onion mushrooms, chicken sausages, black olives and lots of cheese."))
