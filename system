@@ -3,11 +3,9 @@ import logging
 from datetime import datetime
 import csv
 
-# ---------- Logging Setup ----------
 logging.basicConfig(filename='restaurant.log', level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
-# ---------- Database Setup ----------
 db = sqlite3.connect('restaurant.db')
 cursor = db.cursor()
 
@@ -32,7 +30,6 @@ def setup_database():
                         is_reserved INTEGER DEFAULT 0
                     )''')
 
-    # Inserting tables with seat info and reservation status
     for table_number in range(1, 5):
         cursor.execute('INSERT OR IGNORE INTO tables (number, seats, is_reserved) VALUES (?, ?, ?)',
                        (table_number, 3, 0))
@@ -42,10 +39,8 @@ def setup_database():
     for table_number in range(9, 13):
         cursor.execute('INSERT OR IGNORE INTO tables (number, seats, is_reserved) VALUES (?, ?, ?)',
                        (table_number, 4, 0))
-
     db.commit()
 
-# ---------- Menu Classes ----------
 class MenuItem:
     def __init__(self, id, name, price, category, description):
         self.id = id
@@ -71,7 +66,6 @@ class Menu:
         for item in self.items:
             print(f"{item.id}. {item.name} - {item.price}")
 
-# ---------- Restaurant Order Processing ----------
 class Restaurant:
     def __init__(self, menu):
         self.menu = menu
@@ -107,7 +101,6 @@ class Restaurant:
 
         logging.info(f"Order Placed - Table {table_number}: {items_str} - Total: {total}")
 
-        # Payment Method
         while True:
             payment_mode = input("Select Payment Method (Cash/Card): ").strip().lower()
             if payment_mode == 'cash':
@@ -127,14 +120,12 @@ class Restaurant:
             else:
                 print("Invalid option. Please choose 'Cash' or 'Card'.")
 
-        # Unreserve table for dine-in orders
         if table_number != 0:
             cursor.execute('UPDATE tables SET is_reserved = 0 WHERE number = ?', (table_number,))
             db.commit()
             logging.info(f"Table {table_number} unreserved after order completion.")
             print(f"Table {table_number} is now available for others.")
 
-# ---------- Admin Functions ----------
 def admin_login():
     return input("Enter admin password: ") == "admin123"
 
@@ -184,7 +175,6 @@ def unreserve_all_tables():
     print("All tables have been unreserved.")
     logging.info("All tables unreserved.")
 
-# ---------- Table Reservation ----------
 def view_tables(only_available=False):
     if only_available:
         cursor.execute('SELECT * FROM tables WHERE is_reserved = 0')
@@ -200,10 +190,18 @@ def view_tables(only_available=False):
         status = "Reserved" if table[2] else "Free"
         print(f"Table {table[0]} ({table[1]} seats): {status}")
 
-def reserve_table():
+def reserve_table(seats_required):
     while True:
-        print("Available tables:")
-        view_tables(only_available=True)
+        print(f"\nAvailable tables with exactly {seats_required} seats:")
+        cursor.execute('SELECT * FROM tables WHERE is_reserved = 0 AND seats = ?', (seats_required,))
+        tables = cursor.fetchall()
+
+        if not tables:
+            print(f"No available tables with exactly {seats_required} seats. Please try again later or choose a different number of seats.")
+            return None
+
+        for table in tables:
+            print(f"Table {table[0]} ({table[1]} seats): Free")
 
         try:
             num = int(input("Enter table number to reserve: "))
@@ -211,27 +209,27 @@ def reserve_table():
             print("Invalid input. Please enter a numeric table number.")
             continue
 
-        cursor.execute('SELECT is_reserved FROM tables WHERE number = ?', (num,))
+        cursor.execute('SELECT seats, is_reserved FROM tables WHERE number = ?', (num,))
         result = cursor.fetchone()
 
-        if result is None:
+        if not result:
             print(f"Table {num} does not exist. Please try again.")
             continue
-        if result[0] == 1:
+        if result[1] == 1:
             print(f"Table {num} is already reserved. Please choose another table.")
+            continue
+        if result[0] != seats_required: 
+            print(f"Table {num} does not have exactly {seats_required} seats. Please choose a suitable table from the list.")
             continue
 
         cursor.execute('UPDATE tables SET is_reserved = 1 WHERE number = ?', (num,))
         db.commit()
         print(f"Table {num} has been reserved successfully.")
-        logging.info(f"Table {num} reserved")
-        break
-
-# ---------- Main Program ----------
+        logging.info(f"Table {num} reserved for {seats_required} seats (exact match)")
+        return num
 def main():
     setup_database()
 
-    # Menu setup
     menu = Menu()
     menu.add_item(MenuItem(1, "Burger", 599, "Fast Food", "Crispy fried thigh, crispy lettuce, spicy dynamite sauce, served in a sesame seed bun."))
     menu.add_item(MenuItem(2, "Pizza", 899, "Fast Food", "Spicy chicken, creamy homemade sauce, green peppers, onion mushrooms, chicken sausages, black olives and lots of cheese."))
@@ -254,39 +252,76 @@ def main():
         opt = input("1. Dine in  \n2. Takeaway  \n3. Exit \n")
 
         if opt == '1':
+            table_number = None
             while True:
-                print("1. View tables  \n2. Reserve table \n3. Proceed to Menu")
+                print("\n1. View tables (all)\n2. Reserve table\n3. Proceed to Menu (if you already have a table)")
                 op1 = input("Select an option: ")
 
                 if op1 == '1':
                     view_tables()
                 elif op1 == '2':
-                    reserve_table()
-                    print("\nTable reserved. Proceeding to Menu...\n")
-                    break
+                    while True:
+                        try:
+                            seats_required = int(input("How many seats do you need? "))
+                            if seats_required <= 0:
+                                print("Please enter a positive number.")
+                                continue
+                            break
+                        except ValueError:
+                            print("Invalid input. Please enter a numeric value.")
+                            continue
+
+                    table_number = reserve_table(seats_required)
+                    if table_number:
+                        print("\nTable reserved. Proceeding to Menu...\n")
+                        break 
+                    else:
+                        print("Reservation failed. Returning to the dine-in options.")
+                        continue 
                 elif op1 == '3':
-                    break
+                    try:
+                        table_number = int(input("Enter your Table Number: "))
+                        cursor.execute('SELECT is_reserved FROM tables WHERE number = ?', (table_number,))
+                        result = cursor.fetchone()
+                        if not result or result[0] == 0:
+                            print(f"Table {table_number} is not reserved or does not exist. Please reserve it first or enter a valid reserved table number.")
+                            table_number = None 
+                            continue
+                        break 
+                    except ValueError:
+                        print("Invalid input. Please enter a numeric table number.")
+                        continue
+                else:
+                    print("Invalid option. Please select 1, 2, or 3.")
 
-            table_number = int(input("Enter your Table Number: "))
-            order_item_ids = []
-            while True:
-                menu.view_menu()
-                try:
-                    item_id = int(input("Enter item ID to order: "))
-                    order_item_ids.append(item_id)
-                except ValueError:
-                    print("Invalid input. Please enter a numeric item ID.")
-                    continue
 
-                more = input("Do you want to add another item? (yes/no): ").lower()
-                if more != 'yes':
-                    break
+            if table_number is not None:
+                order_item_ids = []
+                while True:
+                    menu.view_menu()
+                    try:
+                        item_id = int(input("Enter item ID to order: "))
+                    
+                        if any(item.id == item_id for item in menu.items):
+                            order_item_ids.append(item_id)
+                        else:
+                            print(f"Item ID '{item_id}' not found in menu. Please enter a valid item ID.")
+                            continue
+                    except ValueError:
+                        print("Invalid input. Please enter a numeric item ID.")
+                        continue
 
-            restaurant.place_order(table_number, order_item_ids)
+                    more = input("Do you want to add another item? (yes/no): ").lower()
+                    if more != 'yes':
+                        break
+
+                if order_item_ids: 
+                    restaurant.place_order(table_number, order_item_ids)
+                else:
+                    print("No items ordered. Returning to main menu.")
 
         elif opt == '2':
             print("Notice: your takeaway order will take 30 min to get prepared.")
-
             while True:
                 print("\n--- Takeaway Menu ---")
                 print("1. View Menu\n2. Place Order\n3. Admin Panel\n4. Exit to Main Menu")
@@ -295,13 +330,16 @@ def main():
                 if choice == '1':
                     menu.view_menu()
                 elif choice == '2':
-                    print("Placing a takeaway order.")
                     order_item_ids = []
                     while True:
                         menu.view_menu()
                         try:
                             item_id = int(input("Enter item ID to order: "))
-                            order_item_ids.append(item_id)
+                            if any(item.id == item_id for item in menu.items):
+                                order_item_ids.append(item_id)
+                            else:
+                                print(f"Item ID '{item_id}' not found in menu. Please enter a valid item ID.")
+                                continue
                         except ValueError:
                             print("Invalid input. Please enter a numeric item ID.")
                             continue
@@ -309,9 +347,10 @@ def main():
                         more = input("Do you want to add another item? (yes/no): ").lower()
                         if more != 'yes':
                             break
-
-                    restaurant.place_order(0, order_item_ids)
-
+                    if order_item_ids:
+                        restaurant.place_order(0, order_item_ids) 
+                    else:
+                        print("No items ordered. Returning to takeaway menu.")
                 elif choice == '3':
                     print("1. Add Worker\n2. View Workers\n3. Update Worker\n4. Remove Worker\n5. Unreserve All Tables")
                     admin_opt = input("Select: ")
@@ -325,12 +364,22 @@ def main():
                         remove_worker()
                     elif admin_opt == '5':
                         unreserve_all_tables()
+                    else:
+                        print("Invalid admin option.")
                 elif choice == '4':
                     break
+                else:
+                    print("Invalid option. Please select 1, 2, 3, or 4.")
 
         elif opt == '3':
             print("Thank you for visiting us!")
             break
+        else:
+            print("Invalid option. Please select 1, 2, or 3.")
+
+if __name__ == "__main__":
+    main()
+    db.close()
 
 if __name__ == "__main__":
     main()
