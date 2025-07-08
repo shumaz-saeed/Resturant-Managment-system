@@ -1,6 +1,5 @@
-# Resturant-Managment-system
 
-# Restaurant Management System 🍽️
+# Restaurant Management System 
 
 Welcome to the Restaurant Management System\! This Python application offers a seamless experience for both customers and administrators, handling everything from table reservations and order placement to staff management and detailed logging.
 
